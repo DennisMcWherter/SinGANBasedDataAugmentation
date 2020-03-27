@@ -1,3 +1,15 @@
 data/tinyimagenet-first-singan-gen-reps.tgz filter=lfs diff=lfs merge=lfs -text
 models/mobilenet_imbalanced filter=lfs diff=lfs merge=lfs -text
 models/mobilenet_imbalanced_std_aug filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced_std_aug/variables filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced/variables filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced/variables/variables.data-00001-of-00002 filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced/variables/variables.index filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced/assets filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced_std_aug/assets filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced_std_aug/variables/variables.data-00000-of-00002 filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced_std_aug/variables/variables.data-00001-of-00002 filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced_std_aug/variables/variables.index filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced/variables/variables.data-00000-of-00002 filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced/saved_model.pb filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced_std_aug/saved_model.pb filter=lfs diff=lfs merge=lfs -text
