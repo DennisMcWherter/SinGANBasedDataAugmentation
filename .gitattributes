@@ -1,0 +1,3 @@
+data/tinyimagenet-first-singan-gen-reps.tgz filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced filter=lfs diff=lfs merge=lfs -text
+models/mobilenet_imbalanced_std_aug filter=lfs diff=lfs merge=lfs -text
