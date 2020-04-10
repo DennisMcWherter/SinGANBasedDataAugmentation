@@ -1,0 +1,214 @@
+diff --git a/bagan_train.py b/bagan_train.py
+index 0eac098..2852ad1 100644
+--- a/bagan_train.py
++++ b/bagan_train.py
+@@ -16,6 +16,7 @@ from optparse import OptionParser
+ import balancing_gan as bagan
+ from rw.batch_generator import BatchGenerator as BatchGenerator
+ from utils import save_image_array
++import PIL
+ 
+ import os
+ 
+@@ -119,7 +120,7 @@ if __name__ == '__main__':
+     for c in min_classes:
+         # If unbalance is 1.0, then the same BAGAN model can be applied to every class because
+         # we do not drop any instance at training time.
+-        if unbalance == 1.0 and c > 0 and (
++        if unbalance == 1.0 and c >= 0 and (
+             os.path.exists("{}/class_0_score.csv".format(res_dir, c)) and
+             os.path.exists("{}/class_0_discriminator.h5".format(res_dir, c)) and
+             os.path.exists("{}/class_0_generator.h5".format(res_dir, c)) and
+@@ -171,7 +172,8 @@ if __name__ == '__main__':
+             )
+ 
+         # Sample and save images
+-        img_samples['class_{}'.format(c)] = gan.generate_samples(c=c, samples=10)
++        # Generate 150 samples for future testing...
++        img_samples['class_{}'.format(c)] = gan.generate_samples(c=c, samples=150)
+ 
+         save_image_array(np.array([img_samples['class_{}'.format(c)]]), '{}/plot_class_{}.png'.format(res_dir, c))
+ 
+diff --git a/balancing_gan.py b/balancing_gan.py
+index c88ea10..7bf81fc 100644
+--- a/balancing_gan.py
++++ b/balancing_gan.py
+@@ -10,24 +10,25 @@ http://www.eclipse.org/legal/epl-v10.html
+ import pickle
+ from collections import defaultdict
+ 
+-import keras.backend as K
+-K.set_image_dim_ordering('th')
++import tensorflow as tf
+ 
+-import keras
+-from keras.layers.advanced_activations import LeakyReLU
+-from keras.layers.convolutional import UpSampling2D, Convolution2D, Conv2D
+-from keras.models import Sequential, Model
+-from keras.optimizers import Adam
++#import tf.keras.backend as K
++tf.keras.backend.set_image_data_format('channels_first')
++
++from tensorflow.keras.layers import LeakyReLU
++from tensorflow.keras.layers import UpSampling2D, Convolution2D, Conv2D
++from tensorflow.keras.models import Sequential, Model
++from tensorflow.keras.optimizers import Adam
+ 
+ import os
+ import sys
+ import re
+ import numpy as np
+ 
+-from keras.layers import Input, Dense, Reshape, Flatten, Embedding, Dropout
++from tensorflow.keras.layers import Input, Dense, Reshape, Flatten, Embedding, Dropout
+ 
+-from keras.layers import multiply as kmultiply
+-from keras.layers import add as kadd
++from tensorflow.keras.layers import multiply as kmultiply
++from tensorflow.keras.layers import add as kadd
+ 
+ import csv
+ 
+diff --git a/rw/batch_generator.py b/rw/batch_generator.py
+index a7f5e6b..16edd0a 100644
+--- a/rw/batch_generator.py
++++ b/rw/batch_generator.py
+@@ -7,17 +7,28 @@ which accompanies this distribution, and is available at
+ http://www.eclipse.org/legal/epl-v10.html
+ """
+ 
+-from tensorflow.examples.tutorials.mnist import input_data
++#from tensorflow.examples.tutorials.mnist import input_data
+ import tensorflow as tf
+ import numpy as np
+ 
++def load_metadata(name):
++    with open(name, 'r') as f:
++        return [x.strip().split('\t') for x in f]
++
++def image_as_numpy(path):
++    img = tf.io.read_file(path)
++    img = tf.image.decode_jpeg(img, channels=3)
++    img = tf.image.convert_image_dtype(img, tf.float32)
++    #img = tf.image.resize(img, [28, 28])
++    return img.numpy()
++
+ class BatchGenerator:
+ 
+     TRAIN = 1
+     TEST = 0
+ 
+     def __init__(self, data_src, batch_size=32, class_to_prune=None, unbalance=0, dataset='MNIST'):
+-        assert dataset in ('MNIST', 'CIFAR10'), 'Unknown dataset: ' + dataset
++        assert dataset in ('MNIST', 'CIFAR10', 'tiny-imagenet'), 'Unknown dataset: ' + dataset
+         self.batch_size = batch_size
+         self.data_src = data_src
+ 
+@@ -58,6 +69,34 @@ class BatchGenerator:
+ 
+             # Y 1D format
+             self.dataset_y = self.dataset_y[:, 0]
++        elif dataset == 'tiny-imagenet':
++            metadata = None
++            
++            if self.data_src == self.TEST:
++                metadata = load_metadata('./metadata_output/filtered_test_metadata.txt')
++            else:
++                metadata = load_metadata('./metadata_output/filtered_train_metadata.txt')
++
++            # Labels
++            self.dataset_y = np.array([x[1] for x in metadata])
++            
++            # Convert labels to numeric
++            sorted_labels = sorted(list(set(self.dataset_y)))
++            label_lookup = dict([(sorted_labels[i], i) for i in range(len(sorted_labels))])
++            self.dataset_y = np.array([label_lookup[x] for x in self.dataset_y])
++            print(label_lookup)
++
++            # Data
++            self.dataset_x = np.array([image_as_numpy(x[0]) for x in metadata])
++
++            # Channel first
++            self.dataset_x = np.transpose(self.dataset_x, axes=(0, 3, 1, 2))
++
++            # Normalize between -1 and 1
++            self.dataset_x = (self.dataset_x - 0.5) * 2.
++
++            print("Loaded tiny imagenet...")
++
+ 
+         assert (self.dataset_x.shape[0] == self.dataset_y.shape[0])
+ 
+@@ -93,7 +132,7 @@ class BatchGenerator:
+         self.per_class_count = per_class_count
+ 
+         # List of labels
+-        self.label_table = [str(c) for c in range(10)]
++        self.label_table = [str(c) for c in range(len(set(self.dataset_y)))]
+ 
+         # Preload all the labels.
+         self.labels = self.dataset_y[:]
+diff --git a/utils.py b/utils.py
+index 18d32d7..e05078a 100644
+--- a/utils.py
++++ b/utils.py
+@@ -11,25 +11,39 @@ import numpy as np
+ from PIL import Image
+ 
+ 
++# (66, 10, 3, 64, 64)
+ def save_image_array(img_array, fname):
+-    channels = img_array.shape[2]
+-    resolution = img_array.shape[-1]
+-    img_rows = img_array.shape[0]
+-    img_cols = img_array.shape[1]
+-
+-    img = np.full([channels, resolution * img_rows, resolution * img_cols], 0.0)
+-    for r in range(img_rows):
+-        for c in range(img_cols):
+-            img[:,
+-            (resolution * r): (resolution * (r + 1)),
+-            (resolution * (c % 10)): (resolution * ((c % 10) + 1))
+-            ] = img_array[r, c]
+-
+-    img = (img * 127.5 + 127.5).astype(np.uint8)
+-    if (img.shape[0] == 1):
+-        img = img[0]
+-    else:
+-        img = np.rollaxis(img, 0, 3)
+-
+-    Image.fromarray(img).save(fname)
++    i = 0
++    for row in img_array:
++        for sample in row:
++            img = (sample * 127.5 + 127.5).astype(np.uint8)
++            img = np.transpose(img, axes=(1, 2, 0))
++            i += 1
++            Image.fromarray(img).save('{}_{}.jpg'.format(fname, i))
++
++#    resolution = img_array.shape[-1]
++#    img_rows = img_array.shape[0]
++#    img_cols = img_array.shape[1]
++#
++#    print(img_array.shape)
++#
++#    img = np.full([channels, resolution * img_rows, resolution * img_cols], 0.0)
++#    for r in range(img_rows):
++#        for c in range(img_cols):
++#            img[:,
++#            (resolution * r): (resolution * (r + 1)),
++#            (resolution * (c % 10)): (resolution * ((c % 10) + 1))
++#            ] = img_array[r, c]
++#
++#    img = (img * 127.5 + 127.5).astype(np.uint8)
++#    i = 0
++#    for saveImg in img:
++#        Image.fromarray(saveImg).save('{}_{}.jpg'.format(fname, i))
++#        i += 1
++#    if (img.shape[0] == 1):
++#        img = img[0]
++#    else:
++#        img = np.rollaxis(img, 0, 3)
++#
++#    Image.fromarray(img).save(fname)
+ 
