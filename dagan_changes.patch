@@ -1,0 +1,248 @@
+diff --git a/data.py b/data.py
+index 64a48ef..7a33a3e 100644
+--- a/data.py
++++ b/data.py
+@@ -1,4 +1,6 @@
+ import numpy as np
++import cv2
++
+ np.random.seed(2591)
+ 
+ 
+@@ -342,3 +344,32 @@ class VGGFaceDAGANDataset(DAGANDataset):
+ 
+         return x_train, x_test, x_val
+ 
++
++class TinyImagenetDAGANDataset(DAGANDataset):
++    def __init__(self, batch_size, last_training_class_index, reverse_channels,
++                 num_of_gpus, gen_batches, category, image_size=64, num_channels=3):
++        self.category = category
++        self.image_size = image_size
++        self.num_channels = num_channels
++        super(TinyImagenetDAGANDataset, self).__init__(batch_size, last_training_class_index,
++                                                       reverse_channels, num_of_gpus, gen_batches)
++
++    def load_dataset(self, gan_training_index):
++        def load_metadata(filename):
++            with open(filename, 'r') as f:
++                return [x.strip().split('\t') for x in f.readlines()]
++
++        train_metadata = load_metadata('../metadata_output/train_metadata.txt')
++        test_metadata = load_metadata('../metadata_output/test_metadata.txt')
++
++        x_train = np.array([cv2.imread('../' + x[0]) / 255
++                            for x in train_metadata if x[1] == self.category])
++        x_train = x_train.reshape((1, x_train.shape[0],
++                                   self.image_size, self.image_size, self.num_channels))
++
++        x_test = np.array([cv2.imread('../' + x[0]) / 255
++                           for x in test_metadata if x[1] == self.category])
++        x_test = x_test.reshape((1, x_test.shape[0],
++                                 self.image_size, self.image_size, self.num_channels))
++
++        return x_train, x_test, x_test
+\ No newline at end of file
+diff --git a/experiment_builder.py b/experiment_builder.py
+index e7c6630..c5caf7d 100644
+--- a/experiment_builder.py
++++ b/experiment_builder.py
+@@ -20,7 +20,9 @@ class ExperimentBuilder(object):
+         gen_depth_per_layer = args.generator_inner_layers
+         discr_depth_per_layer = args.discriminator_inner_layers
+         self.z_dim = args.z_dim
++
+         self.num_generations = args.num_generations
++        # self.num_generations = 150
+         self.dropout_rate_value = args.dropout_rate_value
+         self.data = data
+         self.reverse_channels = False
+@@ -65,8 +67,11 @@ class ExperimentBuilder(object):
+ 
+         self.init = tf.global_variables_initializer()
+         self.spherical_interpolation = True
+-        self.tensorboard_update_interval = int(self.total_train_batches/100/self.num_gpus)
+-        self.total_epochs = 200
++        # self.tensorboard_update_interval = int(self.total_train_batches/100/self.num_gpus)
++        self.tensorboard_update_interval = int(self.total_train_batches/5/self.num_gpus)
++
++        # self.total_epochs = 200
++        self.total_epochs = 100
+ 
+         if self.continue_from_epoch == -1:
+             save_statistics(self.log_path, ['epoch', 'total_d_train_loss_mean', 'total_d_val_loss_mean',
+@@ -215,60 +220,65 @@ class ExperimentBuilder(object):
+                                     total_g_val_loss_mean,
+                                     total_g_val_loss_std))
+ 
+-
+-
+-                    sample_generator(num_generations=self.num_generations, sess=sess, same_images=self.same_images,
+-                                     inputs=x_train_i,
+-                                     data=self.data, batch_size=self.batch_size, z_input=self.z_input,
+-                                     file_name="{}/train_z_variations_{}_{}.png".format(self.save_image_path,
+-                                                                                        self.experiment_name,
+-                                                                                        e),
+-                                     input_a=self.input_x_i, training_phase=self.training_phase,
+-                                     z_vectors=self.z_vectors, dropout_rate=self.dropout_rate,
+-                                     dropout_rate_value=self.dropout_rate_value)
+-
+-                    sample_two_dimensions_generator(sess=sess,
+-                                                    same_images=self.same_images,
+-                                                    inputs=x_train_i,
+-                                                    data=self.data, batch_size=self.batch_size, z_input=self.z_input,
+-                                                    file_name="{}/train_z_spherical_{}_{}".format(self.save_image_path,
+-                                                                                                  self.experiment_name,
+-                                                                                                  e),
+-                                                    input_a=self.input_x_i, training_phase=self.training_phase,
+-                                                    dropout_rate=self.dropout_rate,
+-                                                    dropout_rate_value=self.dropout_rate_value,
+-                                                    z_vectors=self.z_2d_vectors)
+-
+-                    with tqdm.tqdm(total=self.total_gen_batches) as pbar_samp:
+-                        for i in range(self.total_gen_batches):
+-                            x_gen_a = self.data.get_gen_batch()
+-                            sample_generator(num_generations=self.num_generations, sess=sess,
+-                                             same_images=self.same_images,
+-                                             inputs=x_gen_a,
+-                                             data=self.data, batch_size=self.batch_size, z_input=self.z_input,
+-                                             file_name="{}/test_z_variations_{}_{}_{}.png".format(self.save_image_path,
+-                                                                                                  self.experiment_name,
+-                                                                                                  e, i),
+-                                             input_a=self.input_x_i, training_phase=self.training_phase,
+-                                             z_vectors=self.z_vectors, dropout_rate=self.dropout_rate,
+-                                             dropout_rate_value=self.dropout_rate_value)
+-
+-                            sample_two_dimensions_generator(sess=sess,
+-                                                            same_images=self.same_images,
+-                                                            inputs=x_gen_a,
+-                                                            data=self.data, batch_size=self.batch_size,
+-                                                            z_input=self.z_input,
+-                                                            file_name="{}/val_z_spherical_{}_{}_{}".format(
+-                                                                self.save_image_path,
+-                                                                self.experiment_name,
+-                                                                e, i),
+-                                                            input_a=self.input_x_i,
+-                                                            training_phase=self.training_phase,
+-                                                            dropout_rate=self.dropout_rate,
+-                                                            dropout_rate_value=self.dropout_rate_value,
+-                                                            z_vectors=self.z_2d_vectors)
+-
+-                            pbar_samp.update(1)
++                    if e >= 60:
++                        sample_generator(num_generations=self.num_generations, sess=sess,
++                                         same_images=self.same_images,
++                                         inputs=x_train_i,
++                                         data=self.data, batch_size=self.batch_size,
++                                         z_input=self.z_input,
++                                         file_name="{}/train_z_variations_{}_{}.png".format(
++                                             self.save_image_path,
++                                             self.experiment_name,
++                                             e),
++                                         input_a=self.input_x_i, training_phase=self.training_phase,
++                                         z_vectors=self.z_vectors, dropout_rate=self.dropout_rate,
++                                         dropout_rate_value=self.dropout_rate_value)
++
++                        sample_two_dimensions_generator(sess=sess,
++                                                        same_images=self.same_images,
++                                                        inputs=x_train_i,
++                                                        data=self.data, batch_size=self.batch_size,
++                                                        z_input=self.z_input,
++                                                        file_name="{}/train_z_spherical_{}_{}".format(
++                                                            self.save_image_path,
++                                                            self.experiment_name,
++                                                            e),
++                                                        input_a=self.input_x_i,
++                                                        training_phase=self.training_phase,
++                                                        dropout_rate=self.dropout_rate,
++                                                        dropout_rate_value=self.dropout_rate_value,
++                                                        z_vectors=self.z_2d_vectors)
++
++                        with tqdm.tqdm(total=self.total_gen_batches) as pbar_samp:
++                            for i in range(self.total_gen_batches):
++                                x_gen_a = self.data.get_gen_batch()
++                                sample_generator(num_generations=self.num_generations, sess=sess,
++                                                 same_images=self.same_images,
++                                                 inputs=x_gen_a,
++                                                 data=self.data, batch_size=self.batch_size, z_input=self.z_input,
++                                                 file_name="{}/test_z_variations_{}_{}_{}.png".format(self.save_image_path,
++                                                                                                      self.experiment_name,
++                                                                                                      e, i),
++                                                 input_a=self.input_x_i, training_phase=self.training_phase,
++                                                 z_vectors=self.z_vectors, dropout_rate=self.dropout_rate,
++                                                 dropout_rate_value=self.dropout_rate_value)
++
++                                sample_two_dimensions_generator(sess=sess,
++                                                                same_images=self.same_images,
++                                                                inputs=x_gen_a,
++                                                                data=self.data, batch_size=self.batch_size,
++                                                                z_input=self.z_input,
++                                                                file_name="{}/val_z_spherical_{}_{}_{}".format(
++                                                                    self.save_image_path,
++                                                                    self.experiment_name,
++                                                                    e, i),
++                                                                input_a=self.input_x_i,
++                                                                training_phase=self.training_phase,
++                                                                dropout_rate=self.dropout_rate,
++                                                                dropout_rate_value=self.dropout_rate_value,
++                                                                z_vectors=self.z_2d_vectors)
++
++                                pbar_samp.update(1)
+ 
+                     train_save_path = self.train_saver.save(sess, "{}/train_saved_model_{}_{}.ckpt".format(
+                         self.saved_models_filepath,
+diff --git a/train_omniglot_dagan.py b/train_omniglot_dagan.py
+index 7212dc2..a081903 100644
+--- a/train_omniglot_dagan.py
++++ b/train_omniglot_dagan.py
+@@ -4,7 +4,8 @@ from utils.parser_util import get_args
+ 
+ batch_size, num_gpus, args = get_args()
+ #set the data provider to use for the experiment
+-data = dataset.OmniglotDAGANDataset(batch_size=batch_size, last_training_class_index=900, reverse_channels=True,
++data = dataset.OmniglotDAGANDataset(batch_size=batch_size, last_training_class_index=900,
++                                    reverse_channels=True,
+                                     num_of_gpus=num_gpus, gen_batches=10)
+ #init experiment
+ experiment = ExperimentBuilder(args, data=data)
+diff --git a/utils/parser_util.py b/utils/parser_util.py
+index fb2962c..567f13d 100644
+--- a/utils/parser_util.py
++++ b/utils/parser_util.py
+@@ -12,7 +12,7 @@ def get_args():
+                         help='Number of inner layers per multi layer in the discriminator')
+     parser.add_argument('--generator_inner_layers', nargs="?", type=int, default=1,
+                         help='Number of inner layers per multi layer in the generator')
+-    parser.add_argument('--experiment_title', nargs="?", type=str, default="omniglot_dagan_experiment",
++    parser.add_argument('--experiment_title', nargs="?", type=str, default="tinyimagenet_dagan_experiment",
+                         help='Experiment name')
+     parser.add_argument('--continue_from_epoch', nargs="?", type=int, default=-1,
+                         help='continue from checkpoint of epoch')
+diff --git a/utils/sampling.py b/utils/sampling.py
+index ecbab87..d759515 100644
+--- a/utils/sampling.py
++++ b/utils/sampling.py
+@@ -1,5 +1,6 @@
+ import scipy.misc
+ import numpy as np
++import imageio
+ 
+ def unstack(np_array):
+     new_list = []
+@@ -47,7 +48,7 @@ def sample_generator(num_generations, sess, same_images, inputs, dropout_rate, d
+     image = (image - np.min(image)) / (np.max(image) - np.min(image))
+     image = image * 255
+     image = image[:, (num_generations-1)*height:]
+-    scipy.misc.imsave(file_name, image)
++    imageio.imwrite(file_name, image)
+ 
+ def sample_two_dimensions_generator(sess, same_images, inputs,
+                                     dropout_rate, dropout_rate_value, data,
+@@ -117,6 +118,6 @@ def sample_two_dimensions_generator(sess, same_images, inputs,
+ 
+         positioned_image = np.concatenate(properly_positioned_image, axis=0)
+ 
+-        scipy.misc.imsave("{}_{}.png".format(file_name, i), positioned_image)
++        imageio.imwrite("{}_{}.png".format(file_name, i), positioned_image)
+ 
+ 
