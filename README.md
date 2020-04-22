@@ -2,6 +2,7 @@
 
 ## Steps outline
 
+0. Untar files in `data` directory and run `create_bagan_metadata.py` and `create_dagan_metadata.py`.
 1. Run Imbalance Notebook
 2. Run KMeans notebook
 3. Copy representative samples from KMeans to SinGAN's `Input/Images` directory
